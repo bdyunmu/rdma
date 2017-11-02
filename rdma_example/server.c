@@ -162,8 +162,8 @@ void post_receives(struct connection *conn)
 
 void register_memory(struct connection *conn)
 {
-  conn->send_region = malloc(BUFFER_SIZE); // malloc BUFFER_SIZE memory space
-  conn->recv_region = malloc(BUFFER_SIZE);
+  conn->send_region = (char *)malloc(BUFFER_SIZE); // malloc BUFFER_SIZE memory space
+  conn->recv_region = (char *)malloc(BUFFER_SIZE);
 
   TEST_Z(conn->send_mr = ibv_reg_mr(
     s_ctx->pd, 
