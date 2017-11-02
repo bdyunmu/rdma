@@ -25,8 +25,8 @@ public:
     bool write(int localOffset, int remoteOffset, int remoteSize);
     bool disconnect();
 
-    void* thr_fn(void *arg);
-private:
+//void* thr_fn(void *arg);
+//private:
    std::queue<Event> requests;
    std::queue<Event> completes;
    int event_id;
