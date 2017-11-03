@@ -27,12 +27,16 @@
  * SOFTWARE.
  */
 
+/* modified by huili@ruijie.com.cn in order to analyze the OFED stack overhead */
+/* time: 2017/11/03 */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <netdb.h>
 #include <errno.h>
 #include <getopt.h>
+#include <sys/time.h>
 #include <rdma/rdma_cma.h>
 #include <rdma/rdma_verbs.h>
 
@@ -42,11 +46,22 @@ static char *port = "7471";
 static struct rdma_cm_id *id;
 static struct ibv_mr *mr, *send_mr;
 static int send_flags;
-static uint8_t send_msg[16];
-static uint8_t recv_msg[16];
+
+const int data_size = 1;
+static uint8_t send_msg[data_size];
+static uint8_t recv_msg[data_size];
+
+double overhead = 0.0;
+double payload = 0.0;
+
+#define TEST 1
 
 static int run(void)
 {
+	struct timeval start,end;
+	gettimeofday(&start,NULL);
+
+#ifdef TEST
 	struct rdma_addrinfo hints, *res;
 	struct ibv_qp_init_attr attr;
 	struct ibv_wc wc;
@@ -63,12 +78,12 @@ static int run(void)
 	memset(&attr, 0, sizeof attr);
 	attr.cap.max_send_wr = attr.cap.max_recv_wr = 1;
 	attr.cap.max_send_sge = attr.cap.max_recv_sge = 1;
-	attr.cap.max_inline_data = 16;
+	attr.cap.max_inline_data = data_size;
 	attr.qp_context = id;
 	attr.sq_sig_all = 1;
 	ret = rdma_create_ep(&id, res, NULL, &attr);
 	// Check to see if we got inline data allowed or not
-	if (attr.cap.max_inline_data >= 16)
+	if (attr.cap.max_inline_data >= data_size)
 		send_flags = IBV_SEND_INLINE;
 	else
 		printf("rdma_client: device doesn't support IBV_SEND_INLINE, "
@@ -79,22 +94,26 @@ static int run(void)
 		goto out_free_addrinfo;
 	}
 
-	mr = rdma_reg_msgs(id, recv_msg, 16);
+	mr = rdma_reg_msgs(id, recv_msg, data_size);
 	if (!mr) {
 		perror("rdma_reg_msgs for recv_msg");
 		ret = -1;
 		goto out_destroy_ep;
 	}
 	if ((send_flags & IBV_SEND_INLINE) == 0) {
-		send_mr = rdma_reg_msgs(id, send_msg, 16);
+		send_mr = rdma_reg_msgs(id, send_msg, data_size);
 		if (!send_mr) {
 			perror("rdma_reg_msgs for send_msg");
 			ret = -1;
 			goto out_dereg_recv;
 		}
 	}
-
-	ret = rdma_post_recv(id, NULL, recv_msg, 16, mr);
+#endif
+	gettimeofday(&end,NULL);		
+	overhead += (end.tv_sec-start.tv_sec)*1000000+(end.tv_usec-start.tv_usec);
+	start = end;
+#ifdef TEST
+	ret = rdma_post_recv(id, NULL, recv_msg, data_size, mr);
 	if (ret) {
 		perror("rdma_post_recv");
 		goto out_dereg_send;
@@ -106,7 +125,7 @@ static int run(void)
 		goto out_dereg_send;
 	}
 
-	ret = rdma_post_send(id, NULL, send_msg, 16, send_mr, send_flags);
+	ret = rdma_post_send(id, NULL, send_msg, data_size, send_mr, send_flags);
 	if (ret) {
 		perror("rdma_post_send");
 		goto out_disconnect;
@@ -123,7 +142,11 @@ static int run(void)
 		perror("rdma_get_recv_comp");
 	else
 		ret = 0;
-
+#endif
+	gettimeofday(&end,NULL);
+	payload += (end.tv_sec-start.tv_sec)*1000000+(end.tv_usec-start.tv_usec);
+	start = end;
+#ifdef TEST
 out_disconnect:
 	rdma_disconnect(id);
 out_dereg_send:
@@ -136,7 +159,12 @@ out_destroy_ep:
 out_free_addrinfo:
 	rdma_freeaddrinfo(res);
 out:
-	return ret;
+#endif
+	//finish = clock();
+	gettimeofday(&end,NULL);
+	overhead += (end.tv_sec-start.tv_sec)*1000000+(end.tv_usec-start.tv_usec);
+	//return ret;
+	return 0;
 }
 
 int main(int argc, char **argv)
@@ -158,9 +186,15 @@ int main(int argc, char **argv)
 			exit(1);
 		}
 	}
-
-	printf("rdma_client: start\n");
+	int i;
+	for(i = 0;i<100;i++){
+	printf("iter:%d\n",i);
+	//printf("rdma_client: start\n");
 	ret = run();
-	printf("rdma_client: end %d\n", ret);
+	//printf("rdma_client: end %d\n", ret);
+	}
+	printf("\/***************************************************\/\n");
+	printf("overhead:%f msec  payload:%f msec\n",overhead,payload);
+	printf("\/***************************************************\/\n");
 	return ret;
 }
